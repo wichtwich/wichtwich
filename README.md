@@ -1,3 +1,5 @@
+Merhaba. İstanbul Gelişim Üniversitesi Elektrik Elektronik Bölümü 2. Bitirme Ödevim.
+
 ## Hi there 👋
 
 <!--
