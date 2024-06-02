@@ -1,0 +1,738 @@
+/*
+************ISTANBUL GELISIM UNIVERSITESI************
+************MUHENDISLIK MIMARLIK FAKULTESI***********
+***********ELEKTRIK ELEKTRONIK MUHENDISLIGI**********
+*********************SUAT KEKLİK*********************
+**********************210409907**********************
+
+Bu kod ile aracınızı sesinizle kontrol edebilirsiniz.
+Ceptelefonunuza yükleyeceğiniz uygulama ile araca komut gönderebilirsiniz.
+Bu uygulamalar Ardunio Bluetooth Control, Amr_Voice yada Bluetooth terminal olabilir.
+
+**********************YAPABİLECEKLERİNİZ**********************
+iki farklı modda kullanabilirsiniz.
+1.) Ses İle Otomatik Kontrol
+Otomatik gider.
+Önünde engel varsa ilk durur.
+Random 5 mp3 den birini çalar.
+Sağ ve sol uzaklığı ölçer.
+Hangisi daha uzaksa sinyalini verir ve döner. 
+Tekrar ileri gider.
+Ortam ışık şiddetine göre ön farı açabilir yada kapatabilir.
+
+2.) Ses İle Manuel Kontrol
+Ses komutu göndererek kontrol edilir.
+İleri komutu ile ilerler önüne engel gelince durur ve mp3 çalışır.
+Geri komutu ile geri gelir. Stopları açar. Mp3 çalışır. Arkasına engel gelince durur ve mp3 çalışır.
+Komutlarla Sağ veya sola dönebilir. Sinyal verir ve mp3 çalışır.
+Komut ile far yada stop açılıp kapatılabilir.
+Komut ile durdurulabilir.
+Komut ile etrafında döndürülebilir.
+Konut ile erkek veya kadın kişi için itifatda bulunur.
+Radar test edilebilir.
+Engel mesafesi 45
+önüne engel gelince 0,1 sn geri gelecek
+**********************BİLGİLENDİRME**********************
+başlanğıçta
+run=0
+otomatik = 0
+yon =0
+
+otomatik modda
+run=0 ilk manuelden geçişte 2
+otomatik = 2
+yon =0
+
+manuel modda
+run=1
+otomatik = 1
+ileri gidiyorsa yon =1 geri geliyorsa yon=2
+*/
+
+#include <Arduino.h>
+#include <SoftwareSerial.h>
+#include "DFRobotDFPlayerMini.h"
+#include <Servo.h>
+#include "NewPing.h"
+
+#define in1 8  //motor pinleri
+#define in2 9
+#define in3 10
+#define in4 11
+#define on_far 51  //lanbalar
+#define stop_lamba 50
+#define sol_sinyal 49
+#define sag_sinyal 48
+#define DFPLAYER_SERIAL Serial2  // mp3 çalar seri port numarası
+#define on_trigger_pin 31        // ön ultra sonik sensor pin mod durumu
+#define on_echo_pin 30
+#define arka_trigger_pin 46        // ön ultra sonik sensor pin mod durumu
+#define arka_echo_pin 47
+
+DFRobotDFPlayerMini player;  // mp3 oynatıcıyı Player adinda olusturuyoruz.
+String komut;                //ses komutunun atandigi degisken
+Servo sg90;                  //servomuzun adi sg90
+int pos = 0;                 //servomuzun aci ayari
+float engelmesafesi = 45;    //engele kac santim kala duracak
+
+int sure_on = 0, sure_arka = 0, sure_sag = 0, sure_sol =0, mesafe_on = 0, mesafe_arka = 0, mesafe_sag = 0, mesafe_sol = 0, run = 0, otomatik = 0, yon =0, ses =0;  //değişkenler
+unsigned long simdikizaman, eskizaman = 0;  //millis komutu için zaman tanımları
+
+void setup() 
+{
+   sg90.attach(42);  //servo komut kablo pin no
+   sg90.write(90);   //servo 75 derece acida
+
+  pinMode(in1, OUTPUT);  //motor pin mod durumu
+  pinMode(in2, OUTPUT);
+  pinMode(in3, OUTPUT);
+  pinMode(in4, OUTPUT);
+  digitalWrite(in1, 0);  //motor pinleri kapalı
+  digitalWrite(in2, 0);
+  digitalWrite(in3, 0);
+  digitalWrite(in4, 0);
+
+  pinMode(on_trigger_pin, OUTPUT);  // ön ultrasonic pin mod durumu
+  pinMode(on_echo_pin, INPUT);
+  pinMode(arka_trigger_pin, OUTPUT);  // arka ultrasonic pin mod durumu
+  pinMode(arka_echo_pin, INPUT);
+digitalWrite(on_trigger_pin, 0);  // ön ultrasonic pinleri kapalı
+digitalWrite(on_echo_pin, 0);
+digitalWrite(arka_trigger_pin, 0);  // arka ultrasonic pinleri kapalı
+digitalWrite(arka_echo_pin, 0);
+
+  pinMode(on_far, OUTPUT);  //lambalar pin mod durumu
+  pinMode(stop_lamba, OUTPUT);
+  pinMode(sol_sinyal, OUTPUT);
+  pinMode(sag_sinyal, OUTPUT);
+  digitalWrite(on_far, 0);  //lambalar kapalı
+  digitalWrite(stop_lamba, 0);
+  digitalWrite(sol_sinyal, 0);
+  digitalWrite(sag_sinyal, 0);
+
+  Serial.begin(9600);  //Tx ve Rx bilgisayar ile arduino arasindaki haberlesmeyi baslatiyoruz.
+  delay(10);
+  Serial1.begin(9600);  //Tx ve Rx bluetooth ile arduino arasindaki haberlesmeyi baslatiyoruz.
+  delay(10);
+  Serial2.begin(9600);  //Tx ve Rx DFPlayer mini ile arduino arasindaki haberlesmeyi baslatiyoruz.
+  delay(10);
+
+  if (player.begin(Serial2))  // DFPlayer mini seriport numarası
+  {
+    player.volume(30);  // Ses seviyesini belirliyoruz (0 to 30).
+    delay(100);
+      player.play(18);
+  digitalWrite(on_far, HIGH);      // on far acilir
+  digitalWrite(stop_lamba, HIGH);  // arka lamba acilir
+  digitalWrite(sag_sinyal, HIGH);
+  digitalWrite(sol_sinyal, HIGH);
+  delay(500);
+  digitalWrite(on_far, LOW);      // on far acilir
+  digitalWrite(stop_lamba, LOW);  // arka lamba acilir
+  digitalWrite(sag_sinyal, LOW);
+  digitalWrite(sol_sinyal, LOW);
+  delay(200);
+  digitalWrite(on_far, HIGH);      // on far acilir
+  digitalWrite(stop_lamba, HIGH);  // arka lamba acilir
+  digitalWrite(sag_sinyal, HIGH);
+  digitalWrite(sol_sinyal, HIGH);
+  delay(500);
+  digitalWrite(on_far, LOW);      // on far acilir
+  digitalWrite(stop_lamba, LOW);  // arka lamba acilir
+  digitalWrite(sag_sinyal, LOW);
+  digitalWrite(sol_sinyal, LOW);
+
+  } 
+  else
+  {
+    delay(10);
+  }
+}
+
+void loop() 
+{
+   //milis
+  simdikizaman = millis();          //araç çalışırken araya başka bir komut yada sensör bilgisi ile girebilmek için gerekli kod
+  if (simdikizaman - eskizaman >= 1000) 
+  {
+    eskizaman = millis();
+  }
+  //milis
+
+// oto far
+ int isik = analogRead(A0); //Işık değişkenini A0 pinindeki LDR ile okuyoruz
+  delay(50);
+  if (isik > 800 && otomatik==2 && (run==1 || run==0)) //Okunan ışık değeri 800'den büyük ise ve otomatik modda ise ışık söner.
+  { 
+    digitalWrite(on_far, LOW);  
+  }
+  if (isik <= 800 && otomatik==2 && (run==2 || run==0)) //Okunan ışık değeri 800'den küçük ise ve otomatik modda ise ışık yanar.
+  { //Okunan ışık değeri 800'den küçük ise
+  digitalWrite(on_far, HIGH); //LED yansın
+  }
+  if (isik > 800 && otomatik==2 && (run==2 || run==0))  //Okunan ışık değeri 800'den büyük ise ve otomatik modda ise ışık söner.
+  { //Okunan ışık değeri 800'den büyük ise
+  digitalWrite(on_far, LOW); //LED sönsün
+  }
+// oto far
+
+// manuel mod için aracın on sensör mesafe ölçümü
+delay(100);
+  digitalWrite(on_trigger_pin, 1);
+  delayMicroseconds(10);
+  digitalWrite(on_trigger_pin, 0);
+  delayMicroseconds(10);
+  sure_on = pulseIn(on_echo_pin, 1);
+  delayMicroseconds(20);
+  digitalWrite(on_echo_pin, 0);
+  mesafe_on = (sure_on / 2) / 29.7;
+  if (mesafe_on < 0) 
+  {
+    mesafe_on = 200;
+  } 
+  if (mesafe_on > 200) 
+  {
+    mesafe_on = 200;
+  }
+
+// manuel mod için aracın arka sensör mesafe ölçümü
+  delay(100);
+  digitalWrite(arka_trigger_pin, 1);
+  delayMicroseconds(10);
+  digitalWrite(arka_trigger_pin, 0);
+  delayMicroseconds(10);
+  sure_arka = pulseIn(arka_echo_pin, 1);
+  delayMicroseconds(20);
+  digitalWrite(arka_echo_pin, 0);
+  mesafe_arka = (sure_arka / 2) / 29.7;
+  if (mesafe_arka < 0) 
+  {
+    mesafe_arka = 200;
+  }
+if (mesafe_arka > 200) 
+  {
+    mesafe_arka = 200;
+  }
+ delay(50);
+
+//manuel modda ön mesafe engelmesafesinden kısa ise
+  if(mesafe_on < engelmesafesi && otomatik==1 && run==1 && yon ==1)
+  {
+    digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in1, LOW);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+  digitalWrite(stop_lamba, 1);
+      delay(100);
+  digitalWrite(in1, LOW); //0,1 sn geri gider.
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+    delay(100);
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+    player.play(13);
+    delay(2500);
+    otomatik=0;
+  } 
+delay(10);
+//manuel modda arka mesafe engelmesafesinden kısa ise
+  if (mesafe_arka < engelmesafesi && otomatik==1 && run==1 && yon ==2)
+  {
+    digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in1, LOW);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+     digitalWrite(stop_lamba, 1);
+           delay(100);
+    digitalWrite(in1, HIGH); //0,1 sn geri gider.
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+    delay(200);
+        digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in1, LOW);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+    player.play(12);
+    delay(2500);
+    otomatik=0;
+  }
+  
+delay(10);
+//otomatik modda ön mesafe engelmesafesinden uzun ise
+if(mesafe_on > engelmesafesi && otomatik==2 && run==2) 
+  {
+delay(10);
+   digitalWrite(stop_lamba, 0);
+   digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  } 
+delay(10);
+//otomatik modda ön mesafe engelmesafesinden kısa ise
+if (mesafe_on < engelmesafesi && otomatik==2 && run==2)
+  {
+  delay(100);
+  digitalWrite(in2, LOW);  // arac durur.
+  digitalWrite(in1, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  digitalWrite(stop_lamba, HIGH);  // arka lamba acilir
+   delay(100);
+    digitalWrite(in1, LOW); //0,1 sn geri gider.
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+    delay(200);
+    digitalWrite(in1, LOW);
+    digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+delay(30);
+  int randomTrack = random(14, 18);  // ilgili mp3 ler rastgele calisir.
+  player.play(randomTrack);
+  delay(3500);
+
+  sg90.write(45);   // eger komut oto ise sag tarafi ölçer
+  delay(200);
+
+  digitalWrite(on_trigger_pin, 1);
+  delayMicroseconds(5);
+  digitalWrite(on_trigger_pin, 0);
+  delayMicroseconds(5);
+  sure_sag = pulseIn(on_echo_pin, 1);
+  delayMicroseconds(10);
+  digitalWrite(on_echo_pin, 0);
+  mesafe_sag = ( sure_sag / 2) / 29.7;
+  if (mesafe_sag < 0) 
+  {
+    mesafe_sag = 200;
+  }
+if (mesafe_sag > 200) 
+  {
+    mesafe_sag = 200;
+  }
+
+delay(10);
+  sg90.write(135);   // eger komut oto ise sol tarafi ölçer
+ delay(200);
+  digitalWrite(on_trigger_pin, 1);
+  delayMicroseconds(5);
+  digitalWrite(on_trigger_pin, 0);
+    delayMicroseconds(5);
+  sure_sol = pulseIn(on_echo_pin, 1);
+    delayMicroseconds(10);
+    digitalWrite(on_echo_pin, 0);
+  mesafe_sol = ( sure_sol / 2) / 29.7;
+
+  if ( mesafe_sol < 0) 
+  {
+     mesafe_sol = 200;
+  }
+if ( mesafe_sol > 200) 
+  {
+     mesafe_sol = 200;
+  }
+
+delay(10);
+sg90.write(90);   // servo düz konuma gelir
+delay(200);
+if(mesafe_sag < mesafe_sol)  //otomatik modda ön mesafe engelmesafesinden kısa ve sol mesafe sag mesafeden büyük ise
+  {
+delay(50);
+   player.play(4);  // ilgili mp3'u calistirir
+   delay(200);
+  digitalWrite(stop_lamba, LOW);
+  digitalWrite(sag_sinyal, LOW);
+  digitalWrite(sol_sinyal, HIGH);
+   digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  delay(600);  //0,6 sn sola doner ve durur
+  digitalWrite(sol_sinyal, LOW);
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  }
+  else if(mesafe_sag >= mesafe_sol)
+  {
+delay(10);//otomatik modda ön mesafe engelmesafesinden kısa ve sag mesafe sol mesafeden büyük veya eşit ise
+
+delay(50);
+player.play(3);  // ilgili mp3'u calistirir
+   delay(200);
+  digitalWrite(stop_lamba, LOW);
+  digitalWrite(sol_sinyal, LOW);
+  digitalWrite(sag_sinyal, HIGH);
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  delay(600);  //0,6 sn saga doner ve durur
+  digitalWrite(sag_sinyal, LOW);
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  } 
+  }
+
+  olcum3();
+}
+
+void olcum3() 
+{
+  while (Serial1.available())  //bluetooth dan okunan bilgi
+  {
+    delay(100);
+    char c = Serial1.read();  //bluetooth dan okunan bilgiyi c degiskenine atiyoruz
+    if (c == '#')             //c simge ise donguden cikiyoruz.
+    {
+      break;
+    }
+    komut += c;  //komut = komut + c
+  }
+  if (komut.length() > 0) 
+  {
+    delay(10);
+    digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in1, LOW);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+  otomatik=1;
+    if (komut == "git" || komut == "go" || komut == "ileri git" || komut == "ileriye git" || komut == "öne git" || komut == "öne dogru git" || komut == "one git" || komut == "one dogru git" || komut == "ilerle" || komut == "ileri" || komut == "ileriye") 
+    {
+      ileriye_git();
+    }
+     if (komut == "Git" || komut == "Go" || komut == "İleri git" || komut == "İleriye git" || komut == "Öne git" || komut == "Öne dogru git" ||komut == "One git" || komut == "One dogru git" || komut == "İlerle" || komut == "İleri" || komut == "İleriye") 
+    {
+      ileriye_git();
+    } 
+    else if (komut == "gel abi gel" ||komut == "gel gel" ||komut == "gel" ||komut == "geri" || komut == "bak" || komut == "geri gel" || komut == "geri git" || komut == "geriye git" || komut == "geriye gel" || komut == "geriye dogru gel"|| komut == "geriye doğru gel") 
+    {
+      geriye_gel();
+    }
+    else if (komut == "Gel abi gel" ||komut == "Gel gel" ||komut == "Gel" ||komut == "Geri" || komut == "Bak" || komut == "Geri gel" || komut == "Geri git" || komut == "Geriye git" || komut == "Geriye gel" || komut == "Geriye dogru gel" || komut == "Geriye doğru gel") 
+    {
+      geriye_gel();
+    }
+     else if (komut == "sağ sağ" ||komut == "sağa doğru dön" ||komut == "sağlı" || komut == "sağ" || komut == "sağa dön"|| komut == "sağlı dön") 
+    {
+      saga_don();
+    }
+    else if (komut == "sag sag" ||komut == "saga dogru don" ||komut == "sagli" || komut == "sag" || komut == "saga don"|| komut == "sagli don") 
+    {
+      saga_don();
+    }
+         else if (komut == "Sağ sağ" ||komut == "Sağa doğru dön" ||komut == "Sağlı" || komut == "Sağ" || komut == "Sağa dön"|| komut == "Sağlı dön") 
+    {
+      saga_don();
+    }
+        else if (komut == "Sag sag" ||komut == "Saga dogru don" ||komut == "Sagli" || komut == "Sag" || komut == "Saga don"|| komut == "Sagli don") 
+    {
+      saga_don();
+    }
+    else if (komut == "sol" || komut == "sol sol" || komut == "sola dogru don " || komut == "sola don" || komut == "sol don" || komut == "sollu don" || komut == "sola doğru dön " || komut == "sola dön" || komut == "sol dön" || komut == "sollu dön") 
+    {
+      sola_don();
+    }
+    else if (komut == "Sol" || komut == "Sol sol" || komut == "Sola dogru don " || komut == "Sola don" || komut == "Sol don" || komut == "Sollu don" || komut == "Sola doğru dön " || komut == "Sola dön" || komut == "Sol dön" || komut == "Sollu dön") 
+    {
+      sola_don();
+    }
+    else if (komut == "dur"  || komut == "Dur"|| komut == "Stop" || komut == "stop") 
+    {
+    dur();
+    } 
+    else if (komut == "don" || komut == "Don" || komut == "Dön" || komut == "dön" || komut == "etrafinda don"||  komut == "Etrafinda don" || komut == "etrafında dön" || komut == "Etrafında dön") 
+    {
+      etrafinda_don();
+    } 
+    else if (komut == "far" || komut == "farları aç"  || komut == "farlari ac" || komut == "fari ac" ||  komut == "farı aç" || komut == "lambayi ac" || komut == "lambayı aç" || komut == "lambalari ac" ||  komut == "lambaları aç" || komut == "on lambayi ac" || komut == "ön lambayı aç") 
+    {
+      far_ac();
+    }
+    else if (komut == "Far" || komut == "Farları aç"  || komut == "Farlari ac" || komut == "Fari ac" ||  komut == "Farı aç" || komut == "Lambayi ac" || komut == "Lambayı aç" || komut == "Lambalari ac" ||  komut == "Lambaları aç" || komut == "On lambayi ac" || komut == "Ön lambayı aç") 
+    {
+      far_ac();
+    }
+        else if (komut == "farları yak"  || komut == "farlari yak" || komut == "fari yak" ||  komut == "farı yak" || komut == "lambayi yak" || komut == "lambayı yak" || komut == "lambalari yak" ||  komut == "lambaları yak" || komut == "on lambayi yak" || komut == "ön lambayı yak") 
+    {
+      far_ac();
+    }
+    else if (komut == "Farları yak"  || komut == "Farlari yak" || komut == "Fari yak" ||  komut == "Farı yak" || komut == "Lambayi yak" || komut == "Lambayı yak" || komut == "Lambalari yak" ||  komut == "Lambaları yak" || komut == "On lambayi yak" || komut == "Ön lambayı yak") 
+    {
+      far_ac();
+    }
+    else if (komut == "fark" || komut == "farlari kapat" ||  komut == "farları kapat" || komut == "fari kapat" || komut == "farı kapat" || komut == "lambayi kapat" || komut == "lambayı kapat" || komut == "lambalari kapat" || komut == "lambaları kapat" || komut == "on lambayi kapat"|| komut == "ön lambayı kapat") 
+    {
+      far_kapat();
+    }
+     else if (komut == "Fark" || komut == "Farlari kapat" ||  komut == "Farları kapat" || komut == "Fari kapat" || komut == "Farı kapat" || komut == "Lambayi kapat" || komut == "Lambayı kapat" || komut == "Lambalari kapat" || komut == "Lambaları kapat" || komut == "On lambayi kapat"|| komut == "Ön lambayı kapat") 
+    {
+      far_kapat();
+    }
+    else if (komut == "s" || komut == "stop ac" || komut == "stop aç" || komut == "stoplari ac" ||  komut == "stopları aç" || komut == "arka lamba ac" ||  komut == "arka lamba aç" || komut == "arka lambalari ac" || komut == "arka lambaları aç" ||  komut == "geri lambalari ac" || komut == "geri lamba ac") {
+      stop_lamba_ac();
+    } 
+    else if (komut == "stop yak" || komut == "stoplari yak" || komut == "arka lamba yak" || komut == "arka lambalari yak" || komut == "geri lambalari yak" || komut == "geri lamba yak") {
+      stop_lamba_ac();
+    }
+    else if (komut == "s" || komut == "Stop ac" || komut == "Sstop aç" || komut == "Stoplari ac" ||  komut == "Stopları aç" || komut == "Arka lamba ac" ||  komut == "Arka lamba aç" || komut == "Arka lambalari ac" || komut == "Arka lambaları aç" ||  komut == "Geri lambalari ac" || komut == "Geri lamba ac") 
+    {
+      stop_lamba_ac();
+    } 
+    else if (komut == "Stop yak" || komut == "Stoplari yak" || komut == "Arka lamba yak" || komut == "Arka lambalari yak" || komut == "Geri lambalari yak" || komut == "Geri lamba yak") 
+    {
+      stop_lamba_ac();
+    } 
+    else if (komut == "sk" || komut == "stop kapat" || komut == "stoplari kapat" || komut == "arka lamba kapat" || komut == "arka lambalari kapat" || komut == "arka lambaları kapat" || komut == "geri lambalari kapat" ||  komut == "geri lambaları kapat" || komut == "geri lamba kapat") 
+    {
+      stop_lamba_kapat();
+    }
+    else if (komut == "Sk" || komut == "Stop kapat" || komut == "Stoplari kapat" || komut == "Arka lamba kapat" || komut == "Arka lambalari kapat" || komut == "Arka lambaları kapat" || komut == "Geri lambalari kapat" ||  komut == "Geri lambaları kapat" || komut == "Geri lamba kapat") 
+    {
+      stop_lamba_kapat();
+    } 
+     else if (komut == "radar" || komut == "Radar") 
+    {
+      radar_test();
+    }
+    else if (komut == "oğlum" || komut == "oglum" || komut == "cici" || komut == "çiçi" || komut == "ali") 
+    {
+      rasgele_calistir();
+    }
+    else if (komut == "kızım" || komut == "kizim" || komut == "Kızım" || komut == "kizim")
+    {
+      rasgele_calistir2();
+    }
+    else if (komut== "engeli gec" ||komut== "engeli geç" || komut== "engelden gec" ||  komut== "engelden geç" || komut== "engeli kendin gec" || komut== "engeli kendin geç" || komut== "oto" || komut== "otomatik gec" ||komut== "otomatik geç" || komut== "engelden otomatik gec" || komut== "engelden otomatik geç" || komut== "engeli otomatik gec" || komut== "engeli otomatik geç" || komut== "Engeli gec" ||komut== "Engeli geç" || komut== "Engelden gec" ||  komut== "Engelden geç" || komut== "Engeli kendin gec" || komut== "Engeli kendin geç" || komut== "Oto" || komut== "Otomatik gec" ||komut== "Otomatik geç" || komut== "Engelden otomatik gec" || komut== "Engelden otomatik geç" || komut== "Engeli otomatik gec" || komut== "Engeli otomatik geç")
+    {
+    digitalWrite(stop_lamba, LOW);  // arka lamba acilir
+    otomatik=2;      //oto moda geç
+     delay(10);
+    }
+    /* else
+     {
+      tanimsiz();
+     }*/
+}    
+manuel_oto();
+ komut = "";  // sesi sifirliyoruz
+}
+void manuel_oto()  //maanuel mi oto mu kontrol eder. geçişlerde ilgili mp3 ü çalıştırır.
+{
+delay(10);
+if(otomatik==2 && (run==1 || run==0))   //ilk komut otomatik komutu ise yada manuelden otoya geçiyorsa ilgili mp3 ü çalıştırır.
+ {
+    digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in1, LOW);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+     player.play(19);  // ilgili mp3'u calistirir manuel. KOntrol kaptan tarafından gerçekleştirilecektir.
+     delay(3000);
+ run=2;
+ }
+    delay(10);
+  if(otomatik==1 && (run==0 || run==2))   //ilk komut manuel komutu ise yada otodan manuele geçiyorsa ilgili mp3 ü çalıştırır.
+     {
+    digitalWrite(in2, LOW);  // arac durur.
+    digitalWrite(in1, LOW);
+    digitalWrite(in3, LOW);
+    digitalWrite(in4, LOW);
+     player.play(20);  // ilgili mp3'u calistirir. otomatik moda geçiyorum.
+         delay(3000);
+ run=1;
+ }
+}
+
+void ileriye_git()  // ileri gitme
+{
+  manuel_oto();
+yon=1; // manuel modda yön ileriye doğru olduğunu belirtir
+  digitalWrite(stop_lamba, LOW);  // arka lamba kapanır.
+  player.play(1);  // ilgili mp3'u calistirir
+      delay(2000);
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+}
+
+void geriye_gel()  //
+{
+    manuel_oto();
+  yon=2;
+  digitalWrite(stop_lamba, HIGH);  // arka lamba acilir
+  player.play(2);  // ilgili mp3'u calistirir
+        delay(2000);
+  digitalWrite(sag_sinyal, LOW);
+  digitalWrite(sol_sinyal, LOW);
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+}
+
+void saga_don() 
+{
+    manuel_oto();
+  digitalWrite(stop_lamba, LOW);
+  digitalWrite(sol_sinyal, LOW);
+  digitalWrite(sag_sinyal, HIGH);
+  player.play(3);
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+  delay(600);  //1 sn saga doner ve durur
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  digitalWrite(sag_sinyal, LOW);
+}
+
+void sola_don() 
+{
+    manuel_oto();
+  digitalWrite(stop_lamba, LOW);
+  digitalWrite(sag_sinyal, LOW);
+  digitalWrite(sol_sinyal, HIGH);
+  player.play(4);  // ilgili mp3'u calistirir
+  //delay(200);  //1 sn sola doner ve durur
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  delay(600);  //1 sn sola doner ve durur
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  digitalWrite(sol_sinyal, LOW);
+}
+
+void dur() 
+{
+    manuel_oto();
+  digitalWrite(stop_lamba, HIGH);  // arka lamba acilir
+  digitalWrite(in2, LOW);  // arac durur.
+  digitalWrite(in1, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  player.play(5);  // ilgili mp3 calisir.
+}
+
+void etrafinda_don() 
+{
+    manuel_oto();
+  player.play(6);  // ilgili mp3'u calistirir
+  digitalWrite(sag_sinyal, HIGH);
+  digitalWrite(sol_sinyal, HIGH);
+  digitalWrite(stop_lamba, HIGH);  // arka lamba acilir
+  digitalWrite(on_far, HIGH);      // on far acilir
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
+  digitalWrite(in3, HIGH);
+  digitalWrite(in4, LOW);
+
+  delay(2500);                     //2 sn etrafinda doner ve durur
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  delay(250);
+  digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, HIGH);
+  delay(2500);      //2 sn etrafinda doner ve durur
+  player.play(7);  // ilgili mp3'u calistirir. Başım dönüyor duruyorum.
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+  digitalWrite(sag_sinyal, LOW);
+  digitalWrite(sol_sinyal, LOW);
+  digitalWrite(stop_lamba, LOW);  // arka lamba acilir
+  digitalWrite(on_far, LOW);      // on far acilir
+}
+
+void far_ac() 
+{
+    manuel_oto();
+  player.play(8);                 // ilgili mp3'u calistirir
+  digitalWrite(stop_lamba, LOW);  // arka lamba kapatilir
+  digitalWrite(on_far, HIGH);     // on far acilir
+}
+
+void far_kapat() 
+{
+    manuel_oto();
+  player.play(9);             // ilgili mp3'u calistirir
+  digitalWrite(on_far, LOW);  // on far kapatilir
+}
+
+void stop_lamba_ac() 
+{
+    manuel_oto();
+  player.play(10);                  // ilgili mp3'u calistirir
+  digitalWrite(on_far, LOW);       // on far kapatilir
+  digitalWrite(stop_lamba, HIGH);  // arka lamba acilir
+}
+
+void stop_lamba_kapat() 
+{
+    manuel_oto();
+  player.play(11);                // ilgili mp3'u calistirir
+  digitalWrite(stop_lamba, LOW);  // arka lamba kapatilir
+}
+
+void radar_test()
+{
+    manuel_oto();
+  sg90.write(0);
+  delay(50);
+  for(int i=0;i<=180;i=i+15)
+  {  
+  sg90.write(i);
+  delay(30);
+  }
+  for(int i=180;i>=0;i=i-15)
+  {  
+  sg90.write(i);
+  delay(30);
+  }
+}
+
+void rasgele_calistir() 
+{
+    manuel_oto();
+  int randomTrack = random(21, 29);  // ilgili mp3 ler rastgele calisir. Erkek çocuk övgü.
+  player.play(randomTrack);          // ilgili mp3 ler rastgele calisir.
+}
+
+void rasgele_calistir2() 
+{
+    manuel_oto();
+  int randomTrack = random(29, 36);  // ilgili mp3 ler rastgele calisir. Kız çocuk övgü.
+  player.play(randomTrack);
+}
+
+void tanimsiz() //tanımlanmamış komut aldığında
+{
+    manuel_oto();
+  player.play(37);
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, LOW);
+  digitalWrite(in3, LOW);
+  digitalWrite(in4, LOW);
+    delay(4000);
+}
